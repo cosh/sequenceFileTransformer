@@ -1,5 +1,6 @@
 package com.cosh.transformer.sequencefile;
 
+import com.google.gson.Gson;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocalFileSystem;
@@ -14,6 +15,8 @@ import org.apache.hadoop.io.SequenceFile;
 import org.apache.hadoop.io.WritableComparable;
 
 import java.io.*;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.NavigableMap;
 
 public class SequenceFileToJsonTransformerImpl implements SequenceFileTransformer {
@@ -59,22 +62,21 @@ public class SequenceFileToJsonTransformerImpl implements SequenceFileTransforme
             while (reader.next(key)){
                 count++;
 
-                sb.append("{");
+                HashMap<String, String> value_map = new HashMap<>();
                 String skey = Bytes.toString(((ImmutableBytesWritable)key).get());
                 result = (Result) reader.getCurrentValue(result);
                 NavigableMap<byte[], byte[]> resultMap = result.getFamilyMap(Bytes.toBytes("d"));
 
-                sb.append(String.format("\"hBaseKey\":" + "\"" + skey + "\",\"hBaseValue\":{"));
-
-                StringBuffer iSb = new StringBuffer();
-
                 resultMap.forEach((k, v) -> {
-                    iSb.append(String.format("\"" + Bytes.toString(k) + "\":\"" + Bytes.toString(v) + "\","));
+                    value_map.put(Bytes.toString(k), Bytes.toString(v));
                 });
 
-                sb.append(iSb.toString(), 0, iSb.length() -1);
+                Map<String, Object> output_map = new HashMap<String, Object>();
+                output_map.put("hBaseKey", skey);
+                output_map.put("hBaseValue", value_map);
 
-                sb.append("}}\n");
+                Gson gson = new Gson();
+                sb.append(gson.toJson(output_map));
 
                 if(count % _batchSize == 0)
                 {
