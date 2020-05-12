@@ -1,5 +1,6 @@
 package com.cosh.transformer.sequencefile;
 
+import com.google.gson.Gson;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocalFileSystem;
@@ -14,7 +15,18 @@ import org.apache.hadoop.io.SequenceFile;
 import org.apache.hadoop.io.WritableComparable;
 
 import java.io.*;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.NavigableMap;
+
+class HBaseOutput {
+    public String hbaseKey;
+    public HashMap<String, String> hbaseValue = new HashMap<>();
+
+    HBaseOutput(String hbaseKey) {
+        this.hbaseKey = hbaseKey;
+    }
+}
 
 public class SequenceFileToJsonTransformerImpl implements SequenceFileTransformer {
 
@@ -50,52 +62,51 @@ public class SequenceFileToJsonTransformerImpl implements SequenceFileTransforme
 
             WritableComparable key = (WritableComparable) reader.getKeyClass().newInstance();
 
+            Gson gson = new Gson();
+
             Result result = null;
 
             long count = 0;
 
-            StringBuffer sb = new StringBuffer();
+            ArrayList<HBaseOutput> outputList = new ArrayList<HBaseOutput>();
 
             while (reader.next(key)){
                 count++;
 
-                sb.append("{");
                 String skey = Bytes.toString(((ImmutableBytesWritable)key).get());
                 result = (Result) reader.getCurrentValue(result);
                 NavigableMap<byte[], byte[]> resultMap = result.getFamilyMap(Bytes.toBytes("d"));
 
-                sb.append(String.format("\"hBaseKey\":" + "\"" + skey + "\",\"hBaseValue\":{"));
-
-                StringBuffer iSb = new StringBuffer();
-
+                HBaseOutput hbaseOutput = new HBaseOutput(skey);
                 resultMap.forEach((k, v) -> {
-                    iSb.append(String.format("\"" + Bytes.toString(k) + "\":\"" + Bytes.toString(v) + "\","));
+                    hbaseOutput.hbaseValue.put(Bytes.toString(k), Bytes.toString(v));
                 });
 
-                sb.append(iSb.toString(), 0, iSb.length() -1);
-
-                sb.append("}}\n");
+                outputList.add(hbaseOutput);
 
                 if(count % _batchSize == 0)
                 {
-                    persist(count, sb);
-                    sb=new StringBuffer();
+                    persist(count, outputList);
+                    outputList.clear();
                 }
-
             }
 
             reader.close();
 
-            persist(count, sb);
+            persist(count, outputList);
         }catch (Exception e)
         {
             e.printStackTrace();
         }
     }
 
-    private void persist(long count, StringBuffer sb) throws IOException {
+    private void persist(long count, ArrayList<HBaseOutput> outputList) throws IOException {
+        Gson gson = new Gson();
         BufferedWriter writer = new BufferedWriter(new FileWriter(_destinationPath + count + ".json"));
-        writer.write(sb.toString());
+        for (HBaseOutput outputLine : outputList) {
+            writer.write(gson.toJson(outputLine) + "\n");
+        }
+        writer.write(gson.toJson(outputList));
         writer.close();
     }
 }
